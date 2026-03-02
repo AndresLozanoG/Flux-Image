@@ -1,11 +1,9 @@
 import runpod
+from runpod.serverless.utils import rp_upload
 import torch
 from diffusers import FluxPipeline
-import base64
 import os
 from huggingface_hub import login
-from io import BytesIO
-
 
 hf_token = os.getenv("HF_TOKEN")
 if hf_token:
@@ -21,14 +19,16 @@ def load_model():
             "black-forest-labs/FLUX.1-dev", 
             torch_dtype=torch.bfloat16
         )
-        
         pipe.enable_model_cpu_offload() 
         print("Modelo cargado con éxito.")
 
 def handler(job):
     job_input = job["input"]
+    job_id = job["id"] # Usamos el ID del trabajo para el nombre del archivo
     prompt = job_input.get("prompt", "A professional photo of a futuristic astronaut, 8k")
+    
     load_model()
+    
     with torch.inference_mode():
         output = pipe(
             prompt=prompt,
@@ -39,9 +39,17 @@ def handler(job):
         )
         image = output.images[0]
 
-    buffered = BytesIO()
-    image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    return {"image": img_str}
+    
+    image_path = f"/tmp/{job_id}.png"
+    image.save(image_path)
+
+    
+    image_url = rp_upload.upload_image(job_id, image_path)
+
+    
+    if os.path.exists(image_path):
+        os.remove(image_path)
+
+    return {"image_url": image_url}
 
 runpod.serverless.start({"handler": handler})
