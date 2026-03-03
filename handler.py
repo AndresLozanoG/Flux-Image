@@ -5,6 +5,7 @@ from diffusers import FluxPipeline
 import os
 from huggingface_hub import login
 
+
 hf_token = os.getenv("HF_TOKEN")
 if hf_token:
     login(token=hf_token)
@@ -52,19 +53,28 @@ def handler(job):
     image_path = f"/tmp/{job_id}.png"
     image.save(image_path)
 
-    # Nombre del bucket configurado en las variables de entorno de RunPod
+    
     bucket_name = os.getenv("BUCKET_NAME")
+    
+    
+    upload_config = {
+        "region_name": "eu-ro-1"
+    }
 
-    # Subir a S3 y obtener la URL pública
-    # Esta función usa internamente BUCKET_ENDPOINT_URL, ACCESS_KEY y SECRET_KEY
-    image_url = rp_upload.upload_image(job_id, image_path, bucket_name=bucket_name)
+    
+    image_url = rp_upload.upload_image(
+        job_id, 
+        image_path, 
+        bucket_name=bucket_name,
+        custom_config=upload_config
+    )
 
-    # Limpieza: Borrar el archivo local del contenedor
+    
     if os.path.exists(image_path):
         os.remove(image_path)
 
-    # Retornamos el JSON con el enlace directo
+    
     return {"image_url": image_url}
 
-# Iniciar el servicio serverless
+
 runpod.serverless.start({"handler": handler})
