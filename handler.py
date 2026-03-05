@@ -1,8 +1,8 @@
 import runpod
-from runpod.serverless.utils import rp_upload
 import torch
 from diffusers import FluxPipeline
 import os
+import boto3  
 from huggingface_hub import login
 
 hf_token = os.getenv("HF_TOKEN")
@@ -15,19 +15,16 @@ def load_model():
     global pipe
     if pipe is None:
         print("Cargando modelo FLUX nativo...")
-        
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev", 
             torch_dtype=torch.bfloat16
         )
-        
         pipe.enable_model_cpu_offload() 
         print("Modelo cargado con éxito.")
 
 def handler(job):
     job_input = job["input"]
     job_id = job["id"]
-    
     
     prompt = job_input.get("prompt", "A professional photo of a futuristic astronaut, 8k")
     height = job_input.get("height", 512)
@@ -36,7 +33,6 @@ def handler(job):
     guidance = job_input.get("guidance_scale", 3.5)
 
     load_model()
-    
     
     with torch.inference_mode():
         output = pipe(
@@ -48,23 +44,30 @@ def handler(job):
         )
         image = output.images[0]
 
-    
     image_path = f"/tmp/{job_id}.png"
     image.save(image_path)
 
-    # Nombre del bucket configurado en las variables de entorno de RunPod
+    
     bucket_name = os.getenv("BUCKET_NAME")
+    s3 = boto3.client(
+        's3',
+        endpoint_url=os.getenv("BUCKET_ENDPOINT_URL"),
+        aws_access_key_id=os.getenv("BUCKET_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("BUCKET_SECRET_ACCESS_KEY"),
+        region_name='eu-ro-1' # <--- Aquí forzamos la región
+    )
 
-    # Subir a S3 y obtener la URL pública
-    # Esta función usa internamente BUCKET_ENDPOINT_URL, ACCESS_KEY y SECRET_KEY
-    image_url = rp_upload.upload_image(job_id, image_path, bucket_name=bucket_name)
+    
+    s3.upload_file(image_path, bucket_name, f"{job_id}.png")
 
-    # Limpieza: Borrar el archivo local del contenedor
+    
+    image_url = s3.generate_presigned_url('get_object',
+        Params={'Bucket': bucket_name, 'Key': f"{job_id}.png"},
+        ExpiresIn=3600)
+
     if os.path.exists(image_path):
         os.remove(image_path)
 
-    # Retornamos el JSON con el enlace directo
     return {"image_url": image_url}
 
-# Iniciar el servicio serverless
 runpod.serverless.start({"handler": handler})
