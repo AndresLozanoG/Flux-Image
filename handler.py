@@ -61,9 +61,7 @@ def handler(job):
     s3.upload_file(image_path, bucket_name, f"{job_id}.png")
 
     
-    image_url = s3.generate_presigned_url('get_object',
-        Params={'Bucket': bucket_name, 'Key': f"{job_id}.png"},
-        ExpiresIn=3600)
+    image_url = f"https://{bucket_name}.proxy.runpod.net/{job_id}.png"
 
     if os.path.exists(image_path):
         os.remove(image_path)
